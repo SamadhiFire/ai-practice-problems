@@ -208,7 +208,7 @@ function isTrivialFragment(text) {
   return containsGenericFiller(value);
 }
 
-function findQuestionQualityErrors(question) {
+function findQuestionQualityErrors(question, context = {}) {
   const errors = [];
   const stem = String(question?.stem || "");
   const evidenceQuote = String(question?.evidence_quote || "");

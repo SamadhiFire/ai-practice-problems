@@ -1,13 +1,13 @@
 ﻿const MODE_RULES = {
   modeA: {
-    label: "Source-Grounded",
+    label: "Keypoint Extraction",
     prompt:
-      "Answers must stay directly supportable by the source. Prioritize definitions, conditions, causal logic, formulas, boundaries, and scenario judgments without drifting beyond the material.",
+      "Extract important knowledge points from the provided material first, then generate useful questions around those points. Answers, explanations, and evidence do not need to be copied directly from the material.",
   },
   modeB: {
-    label: "Limited Extension",
+    label: "Knowledge Extension",
     prompt:
-      "Allow limited extension within the source theme, but keep the reasoning disciplined and do not introduce unrelated outside knowledge.",
+      "Extract important knowledge points first, then expand them into broader but still relevant concepts, scenarios, misconceptions, and applications.",
   },
 };
 

@@ -36,16 +36,37 @@
                 placeholder="直接粘贴你的学习材料，或输入你想学习的内容，我会帮助你生成题目~"
                 placeholder-style="color:#70757A;text-align:center;"
               />
-              <view
-                v-if="material.length > 0"
-                class="material-clear-btn"
-                @click.stop="clearMaterialInput"
-              >
-                <image
-                  class="material-clear-icon"
-                  :src="materialClearIconSvg"
-                  mode="aspectFit"
-                />
+              <view class="material-tool-row">
+                <view
+                  class="material-tool-btn"
+                  :class="{ 'is-disabled': isMaterialToolDisabled }"
+                  @click.stop="chooseMaterialImageFromAlbum"
+                >
+                  <text class="material-tool-plus">+</text>
+                </view>
+                <view
+                  class="material-tool-btn"
+                  :class="{ 'is-disabled': isMaterialToolDisabled }"
+                  @click.stop="captureMaterialImage"
+                >
+                  <image
+                    class="material-tool-icon"
+                    :src="materialCameraIconSvg"
+                    mode="aspectFit"
+                  />
+                </view>
+                <view
+                  v-if="material.length > 0"
+                  class="material-clear-btn"
+                  :class="{ 'is-disabled': isMaterialToolDisabled }"
+                  @click.stop="clearMaterialInput"
+                >
+                  <image
+                    class="material-clear-icon"
+                    :src="materialClearIconSvg"
+                    mode="aspectFit"
+                  />
+                </view>
               </view>
             </view>
           </view>
@@ -59,8 +80,11 @@
                   v-for="item in modeOptions"
                   :key="item.value"
                   class="option-cell"
-                  :class="mode === item.value ? 'is-active' : ''"
-                  @click="mode = item.value"
+                  :class="[
+                    mode === item.value ? 'is-active' : '',
+                    isModeOptionDisabled(item.value) ? 'is-disabled' : '',
+                  ]"
+                  @click="selectModeOption(item.value)"
                 >
                   {{ item.label }}
                 </view>
@@ -272,8 +296,29 @@ const mascotCandidates: string[] = [
 const mascotCandidateIndex = ref(0)
 const mascotSrc = ref(mascotCandidates[0])
 const materialClearIconSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="%23CCCCCC" stroke-width="1.5"/><path d="M8.5 8.5L15.5 15.5M15.5 8.5L8.5 15.5" stroke="%23CCCCCC" stroke-width="1.5" stroke-linecap="round"/></svg>'
+const materialCameraIconSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M8.5 6.5L9.8 4.8C10.1 4.3 10.6 4 11.2 4H12.8C13.4 4 13.9 4.3 14.2 4.8L15.5 6.5H18C19.1 6.5 20 7.4 20 8.5V17.2C20 18.3 19.1 19.2 18 19.2H6C4.9 19.2 4 18.3 4 17.2V8.5C4 7.4 4.9 6.5 6 6.5H8.5Z" stroke="%2300B368" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" stroke="%2300B368" stroke-width="1.6"/><path d="M17 9.3H17.01" stroke="%2300B368" stroke-width="2" stroke-linecap="round"/></svg>'
+
+type MaterialImageSource = 'album' | 'camera'
+
+interface SelectedMaterialImage {
+  path: string
+  name: string
+  size: number
+  mimeType: string
+  file?: unknown
+}
+
+interface RunPracticeGenerationOptions {
+  materialText: string
+  skipMaterialValidation?: boolean
+  modeOverride?: PracticeMode
+  imageDataUrl?: string
+  imageName?: string
+  imageMimeType?: string
+}
 
 const isLoading = ref(false)
+const isImagePreparing = ref(false)
 const error = ref('')
 const lastGeneratedCount = ref(0)
 const safeTopPx = ref(resolveTitleSafeTopPadding())
@@ -290,9 +335,18 @@ const activeGenerationInput = ref<StartPracticeGenerationInput | null>(null)
 const pageHeaderHeightPx = ref(resolvePageHeaderFallbackHeight(safeTopPx.value, screenWidthPx.value))
 const pageHeaderStyle = computed(() => ({ paddingTop: `${safeTopPx.value}px` }))
 const pageScrollStyle = computed(() => ({ paddingTop: `${Math.round(pageHeaderHeightPx.value)}px` }))
+const isMaterialToolDisabled = computed(() => isLoading.value || isImagePreparing.value)
+const trimmedMaterialLength = computed(() => material.value.trim().length)
+const shouldLockToSourceExtraction = computed(() =>
+  trimmedMaterialLength.value > 0 && trimmedMaterialLength.value <= 50,
+)
 const customCountDisplay = computed(() => (customCount.value === null ? '自定义' : String(customCount.value)))
 const modeHintText = computed(() =>
-  mode.value === 'modeA' ? '题目答案均来自所给材料' : '允许 AI 结合常识生成题目',
+  shouldLockToSourceExtraction.value
+    ? '50字以内内容仅支持原文提取'
+    : mode.value === 'modeA'
+      ? '提取材料中的重要知识点后出题'
+      : '提取知识点并适度拓展后出题',
 )
 const feedbackHintText = computed(() =>
   feedbackMode.value === 'instant' ? '答一题出一解析' : '完卷后统一查看',
@@ -302,9 +356,12 @@ let stopWatchMaterial: () => void
 let stopWatchMaterialMode: () => void
 const ERROR_INVALID_API_KEY = '请先填写正确的 API Key'
 const ERROR_EMPTY_MATERIAL = '请先输入学习材料'
-const ERROR_MODE_A_MATERIAL_TOO_SHORT = '【原文提取】功能下，材料不得少于50字，可切换至【知识拓展】'
-const ERROR_MODE_B_NEED_KEYWORDS = '使用‘知识拓展’时，请输入核心知识点关键词'
+const ERROR_MODE_B_NEED_LONG_MATERIAL = '50字以内内容请使用【原文提取】'
 const ERROR_GENERATE_TIMEOUT = '生成超时，请检查网络或 API 配置后重试'
+const ERROR_IMAGE_INVALID = '请选择 JPG、PNG、WEBP 或 GIF 图片'
+const ERROR_IMAGE_TOO_LARGE = '图片不能超过 8MB，请压缩后再上传'
+const MAX_MATERIAL_IMAGE_BYTES = 8 * 1024 * 1024
+const MATERIAL_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const PIPELINE_TIMEOUT_MIN_MS = 300000
 const PIPELINE_TIMEOUT_MAX_MS = 600000
 const PIPELINE_TIMEOUT_BASE_MS = 300000
@@ -317,8 +374,7 @@ const HEADER_TOP_COMPACT_RPX = 32
 const HEADER_FIXED_CONTENT_RPX = 168
 const materialErrorSet = new Set<string>([
   ERROR_EMPTY_MATERIAL,
-  ERROR_MODE_A_MATERIAL_TOO_SHORT,
-  ERROR_MODE_B_NEED_KEYWORDS,
+  ERROR_MODE_B_NEED_LONG_MATERIAL,
 ])
 const shouldCenterError = computed(() => {
   const message = String(error.value || '').trim()
@@ -673,6 +729,7 @@ function onMascotImageError() {
 }
 
 function clearMaterialInput() {
+  if (isMaterialToolDisabled.value) return
   material.value = ''
   error.value = ''
   syncMaterialDraft('')
@@ -697,6 +754,288 @@ function clearMaterialInput() {
     type: 'light',
     fail: () => {},
   })
+}
+
+function isModeOptionDisabled(value: PracticeMode): boolean {
+  return value === 'modeB' && shouldLockToSourceExtraction.value
+}
+
+function selectModeOption(value: PracticeMode): void {
+  if (isModeOptionDisabled(value)) {
+    mode.value = 'modeA'
+    error.value = ''
+    showPlainToast(ERROR_MODE_B_NEED_LONG_MATERIAL)
+    return
+  }
+  mode.value = value
+}
+
+function showPlainToast(title: string): void {
+  uni.showToast({
+    title,
+    icon: 'none',
+  })
+}
+
+function getFileNameFromPath(path: string): string {
+  const cleanPath = String(path || '').split('?')[0] || ''
+  const parts = cleanPath.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || 'material-image'
+}
+
+function normalizeImageMimeType(rawType: unknown, path = ''): string {
+  const raw = String(rawType || '').trim().toLowerCase()
+  if (raw === 'image/jpg') return 'image/jpeg'
+  if (MATERIAL_IMAGE_MIME_TYPES.includes(raw)) return raw
+
+  const cleanPath = String(path || '').split('?')[0].toLowerCase()
+  if (/\.(jpe?g)$/.test(cleanPath)) return 'image/jpeg'
+  if (/\.png$/.test(cleanPath)) return 'image/png'
+  if (/\.webp$/.test(cleanPath)) return 'image/webp'
+  if (/\.gif$/.test(cleanPath)) return 'image/gif'
+  return ''
+}
+
+function estimateBase64Bytes(base64: string): number {
+  const clean = String(base64 || '').replace(/\s+/g, '')
+  if (!clean) return 0
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding)
+}
+
+function parseDataUrl(value: string): { mimeType: string; base64: string } | null {
+  const match = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(String(value || '').trim())
+  if (!match) return null
+  return {
+    mimeType: normalizeImageMimeType(match[1]),
+    base64: String(match[2] || '').replace(/\s+/g, ''),
+  }
+}
+
+function assertSelectedMaterialImage(image: SelectedMaterialImage): void {
+  if (!MATERIAL_IMAGE_MIME_TYPES.includes(image.mimeType)) {
+    throw new Error(ERROR_IMAGE_INVALID)
+  }
+  if (image.size > MAX_MATERIAL_IMAGE_BYTES) {
+    throw new Error(ERROR_IMAGE_TOO_LARGE)
+  }
+}
+
+function normalizeSelectedMaterialImage(raw: unknown): SelectedMaterialImage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as {
+    path?: unknown
+    tempFilePath?: unknown
+    name?: unknown
+    size?: unknown
+    type?: unknown
+    file?: unknown
+  }
+  const fileLike = source.file as { name?: unknown; size?: unknown; type?: unknown } | undefined
+  const path = String(source.path || source.tempFilePath || '').trim()
+  if (!path && !source.file) return null
+
+  const size = Math.max(0, Number(source.size || fileLike?.size || 0))
+  const name = String(source.name || fileLike?.name || getFileNameFromPath(path)).trim() || 'material-image'
+  const mimeType = normalizeImageMimeType(source.type || fileLike?.type, path || name)
+  const image = {
+    path,
+    name,
+    size,
+    mimeType,
+    file: source.file,
+  }
+  assertSelectedMaterialImage(image)
+  return image
+}
+
+function isChooseImageCancelled(error: unknown): boolean {
+  const message = String((error as { errMsg?: unknown })?.errMsg || error || '').toLowerCase()
+  return message.includes('cancel') || message.includes('取消')
+}
+
+function chooseMaterialImage(sourceType: MaterialImageSource): Promise<SelectedMaterialImage | null> {
+  return new Promise((resolve, reject) => {
+    uni.chooseImage({
+      count: 1,
+      sizeType: ['compressed'],
+      sourceType: [sourceType],
+      success: (result) => {
+        const payload = result as {
+          tempFiles?: unknown[]
+          tempFilePaths?: string[]
+        }
+        const first = Array.isArray(payload.tempFiles) && payload.tempFiles.length > 0
+          ? payload.tempFiles[0]
+          : {
+              path: payload.tempFilePaths?.[0] || '',
+            }
+        try {
+          resolve(normalizeSelectedMaterialImage(first))
+        } catch (error) {
+          reject(error)
+        }
+      },
+      fail: (error) => {
+        if (isChooseImageCancelled(error)) {
+          resolve(null)
+          return
+        }
+        reject(error)
+      },
+    })
+  })
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('图片读取失败，请重新选择'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function readSelectedFileAsDataUrl(file: unknown): Promise<string> | null {
+  const BlobCtor = (globalThis as { Blob?: new (...args: unknown[]) => Blob }).Blob
+  if (!BlobCtor || !(file instanceof BlobCtor)) return null
+  return readBlobAsDataUrl(file)
+}
+
+function readFilePathAsBase64(path: string): Promise<string> | null {
+  const fsApi = (uni as unknown as {
+    getFileSystemManager?: () => {
+      readFile: (options: {
+        filePath: string
+        encoding: 'base64'
+        success: (result: { data?: unknown }) => void
+        fail: (error: unknown) => void
+      }) => void
+    }
+  }).getFileSystemManager?.()
+  if (!fsApi) return null
+
+  return new Promise((resolve, reject) => {
+    fsApi.readFile({
+      filePath: path,
+      encoding: 'base64',
+      success: (result) => resolve(String(result.data || '')),
+      fail: reject,
+    })
+  })
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let cursor = 0; cursor < bytes.length; cursor += chunkSize) {
+    const chunk = bytes.subarray(cursor, cursor + chunkSize)
+    let piece = ''
+    for (let index = 0; index < chunk.length; index += 1) {
+      piece += String.fromCharCode(chunk[index])
+    }
+    binary += piece
+  }
+  return btoa(binary)
+}
+
+async function readImagePathWithFetch(path: string): Promise<string> {
+  if (typeof fetch !== 'function') {
+    throw new Error('当前环境不支持读取图片，请换用相册或相机重新选择')
+  }
+  const response = await fetch(path)
+  if (!response.ok) {
+    throw new Error('图片读取失败，请重新选择')
+  }
+  const buffer = await response.arrayBuffer()
+  return arrayBufferToBase64(buffer)
+}
+
+function resolveImageProviderError(): string {
+  const config = loadLlmConfig()
+  if (config.provider === 'deepseek') {
+    return '当前 DeepSeek 不支持图片解析，请切换 OpenAI、Gemini 或千问视觉模型'
+  }
+  return ''
+}
+
+async function readMaterialImageAsDataUrl(image: SelectedMaterialImage): Promise<string> {
+  const directData = image.path.startsWith('data:image/') ? parseDataUrl(image.path) : null
+  if (directData) {
+    const byteLength = estimateBase64Bytes(directData.base64)
+    if (byteLength > MAX_MATERIAL_IMAGE_BYTES) throw new Error(ERROR_IMAGE_TOO_LARGE)
+    if (!MATERIAL_IMAGE_MIME_TYPES.includes(directData.mimeType)) throw new Error(ERROR_IMAGE_INVALID)
+    return `data:${directData.mimeType};base64,${directData.base64}`
+  }
+
+  const fileReaderResult = image.file ? await readSelectedFileAsDataUrl(image.file)?.catch(() => '') : ''
+  const fileData = fileReaderResult ? parseDataUrl(fileReaderResult) : null
+  if (fileData) {
+    const byteLength = estimateBase64Bytes(fileData.base64)
+    if (byteLength > MAX_MATERIAL_IMAGE_BYTES) throw new Error(ERROR_IMAGE_TOO_LARGE)
+    if (!MATERIAL_IMAGE_MIME_TYPES.includes(fileData.mimeType)) throw new Error(ERROR_IMAGE_INVALID)
+    return `data:${fileData.mimeType};base64,${fileData.base64}`
+  }
+
+  if (!image.path) {
+    throw new Error('图片读取失败，请重新选择')
+  }
+
+  const fromFileSystem = readFilePathAsBase64(image.path)
+  const base64 = fromFileSystem
+    ? await fromFileSystem
+    : await readImagePathWithFetch(image.path)
+  const byteLength = estimateBase64Bytes(base64)
+  if (byteLength > MAX_MATERIAL_IMAGE_BYTES) throw new Error(ERROR_IMAGE_TOO_LARGE)
+  return `data:${image.mimeType};base64,${String(base64 || '').replace(/\s+/g, '')}`
+}
+
+async function startImageMaterialGeneration(sourceType: MaterialImageSource): Promise<void> {
+  if (isMaterialToolDisabled.value) return
+  error.value = ''
+  lastGeneratedCount.value = 0
+
+  if (!isApiKeyReady.value) {
+    handleGenerateBlocked()
+    return
+  }
+  const providerError = resolveImageProviderError()
+  if (providerError) {
+    error.value = providerError
+    showPlainToast(providerError)
+    return
+  }
+
+  isImagePreparing.value = true
+  try {
+    const selectedImage = await chooseMaterialImage(sourceType)
+    if (!selectedImage) return
+    const imageDataUrl = await readMaterialImageAsDataUrl(selectedImage)
+    mode.value = 'modeA'
+    await runPracticeGeneration({
+      materialText: material.value.trim(),
+      skipMaterialValidation: true,
+      modeOverride: 'modeA',
+      imageDataUrl,
+      imageName: selectedImage.name,
+      imageMimeType: selectedImage.mimeType,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message.trim() : ''
+    error.value = message || '图片处理失败，请重新选择'
+    showPlainToast(error.value)
+  } finally {
+    isImagePreparing.value = false
+  }
+}
+
+function chooseMaterialImageFromAlbum(): void {
+  void startImageMaterialGeneration('album')
+}
+
+function captureMaterialImage(): void {
+  void startImageMaterialGeneration('camera')
 }
 
 function selectPresetCount(count: number) {
@@ -764,19 +1103,10 @@ function resolvePipelineTimeoutMs(requestedCount: number, currentMode: PracticeM
 
 function validateMaterialForMode(trimmedMaterial: string): string {
   if (!trimmedMaterial) return ERROR_EMPTY_MATERIAL
-
-  const minLengthByMode: Record<PracticeMode, number> = {
-    modeA: 50,
-    modeB: 2,
-  }
-  const tooShortErrorByMode: Record<PracticeMode, string> = {
-    modeA: ERROR_MODE_A_MATERIAL_TOO_SHORT,
-    modeB: ERROR_MODE_B_NEED_KEYWORDS,
-  }
-  return trimmedMaterial.length < minLengthByMode[mode.value] ? tooShortErrorByMode[mode.value] : ''
+  return mode.value === 'modeB' && trimmedMaterial.length <= 50 ? ERROR_MODE_B_NEED_LONG_MATERIAL : ''
 }
 
-async function onGenerate() {
+async function runPracticeGeneration(options: RunPracticeGenerationOptions): Promise<void> {
   if (isLoading.value) return
 
   error.value = ''
@@ -791,16 +1121,19 @@ async function onGenerate() {
     return
   }
 
-  const trimmedMaterial = material.value.trim()
-  const materialValidationError = validateMaterialForMode(trimmedMaterial)
-  if (materialValidationError) {
-    error.value = materialValidationError
-    return
+  const trimmedMaterial = String(options.materialText || '').trim()
+  if (!options.skipMaterialValidation) {
+    const materialValidationError = validateMaterialForMode(trimmedMaterial)
+    if (materialValidationError) {
+      error.value = materialValidationError
+      return
+    }
   }
 
   const count = parseQuestionCount()
   const initialBatchCount = count
-  const pipelineTimeoutMs = resolvePipelineTimeoutMs(count, mode.value)
+  const requestMode = options.modeOverride || mode.value
+  const pipelineTimeoutMs = resolvePipelineTimeoutMs(count, requestMode)
   const userTags = loadUserTags()
 
   isLoading.value = true
@@ -810,13 +1143,20 @@ async function onGenerate() {
       material: trimmedMaterial,
       type: questionType.value,
       difficulty: difficulty.value,
-      mode: mode.value,
+      mode: requestMode,
       feedbackMode: feedbackMode.value,
       targetCount: count,
       initialBatchCount,
       userTags,
       requestNonce,
       timeoutMs: pipelineTimeoutMs,
+      ...(options.imageDataUrl
+        ? {
+            imageDataUrl: options.imageDataUrl,
+            imageName: options.imageName || '',
+            imageMimeType: options.imageMimeType || '',
+          }
+        : {}),
     }
     activeGenerationInput.value = generationInput
     const generation = await startPracticeGeneration(generationInput)
@@ -870,8 +1210,20 @@ async function onGenerate() {
   }
 }
 
+function onGenerate() {
+  void runPracticeGeneration({
+    materialText: material.value.trim(),
+  })
+}
+
 stopWatchMaterial = watch(material, (nextMaterial) => {
   syncMaterialDraft(String(nextMaterial || ''))
+})
+
+watch([material, mode], () => {
+  if (shouldLockToSourceExtraction.value && mode.value === 'modeB') {
+    mode.value = 'modeA'
+  }
 })
 
 watch([material, mode], () => {
@@ -1032,7 +1384,7 @@ watch([material, mode], () => {
   min-height: 280rpx;
   border: 1rpx solid #E8EAED;
   border-radius: 16rpx;
-  padding: 18rpx 76rpx 76rpx 18rpx;
+  padding: 18rpx 176rpx 76rpx 18rpx;
   background: transparent;
   font-size: 28rpx;
   line-height: 1.6;
@@ -1040,23 +1392,54 @@ watch([material, mode], () => {
   text-align: center;
 }
 
-.material-clear-btn {
+.material-tool-row {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 40rpx;
-  height: 40rpx;
-  padding: 12rpx;
+  right: 14rpx;
+  bottom: 14rpx;
+  display: flex;
+  align-items: center;
+  z-index: 3;
+}
+
+.material-tool-btn,
+.material-clear-btn {
+  width: 52rpx;
+  height: 52rpx;
+  margin-left: 12rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 3;
+  background: #FFFFFF;
+  border: 1rpx solid #DADCE0;
+  box-sizing: border-box;
+}
+
+.material-tool-row > view:first-child {
+  margin-left: 0;
+}
+
+.material-tool-btn.is-disabled,
+.material-clear-btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.material-tool-plus {
+  color: #00B368;
+  font-size: 42rpx;
+  line-height: 1;
+  transform: translateY(-2rpx);
+}
+
+.material-tool-icon {
+  width: 34rpx;
+  height: 34rpx;
 }
 
 .material-clear-icon {
-  width: 40rpx;
-  height: 40rpx;
+  width: 34rpx;
+  height: 34rpx;
 }
 
 .mascot-watermark-fade-enter-active,
@@ -1151,6 +1534,18 @@ watch([material, mode], () => {
   background: #ffffff;
   color: #1A1A1A;
   font-weight: 500;
+}
+
+.option-cell.is-disabled {
+  color: #A8ADB3;
+  background: #F7F8FA;
+  border-color: #E8EAED;
+}
+
+.option-cell.is-disabled.is-active {
+  color: #1A1A1A;
+  background: #ffffff;
+  border-color: #07C160;
 }
 
 .custom-count-cell {

@@ -379,6 +379,9 @@ export async function createQuestionsGenerationJobInBackend(payload: {
   initialBatchCount: number
   userTags: string[]
   requestNonce: number
+  imageDataUrl?: string
+  imageName?: string
+  imageMimeType?: string
 }): Promise<GenerationJobPayload | null> {
   return requestWithAuth({
     path: '/questions/generate',
@@ -398,6 +401,9 @@ export async function cancelQuestionsGenerationRequestInBackend(payload: {
   initialBatchCount: number
   userTags: string[]
   requestNonce: number
+  imageDataUrl?: string
+  imageName?: string
+  imageMimeType?: string
 }): Promise<boolean | null> {
   const data = await requestWithAuth<{ cancelled?: unknown }>({
     path: '/questions/generate/cancel',

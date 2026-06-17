@@ -141,7 +141,7 @@ function normalizeKeypoints(rawKeypoints, { targetCount, material }) {
       evidence_quote: quote.slice(0, 160),
       why_important:
         String(item.why_important || item.whyImportant || "").trim() ||
-        "This keypoint can support a source-grounded, discriminative question.",
+        "This keypoint can support a focused, discriminative question.",
       knowledge_type: normalizeKnowledgeType(item.knowledge_type || item.knowledgeType),
       confusable_point: String(item.confusable_point || item.confusablePoint || "").trim(),
       recommended_angle: String(item.recommended_angle || item.recommendedAngle || "").trim(),
@@ -331,7 +331,7 @@ function buildDomainSpecificPromptSections({ request, phase }) {
 
   const sections = [
     "Ad-metrics question design rule: cover definition boundary, formula application, A/B comparison, platform decision, and competitiveness reasoning. Do not turn the whole set into paraphrased definition questions.",
-    "Every stem, answer, and explanation must be directly supportable by evidence_quote. In source-grounded mode, allow at most one-step direct inference and no outside knowledge.",
+    "Every stem, answer, and explanation should be anchored to the extracted keypoint, while allowing reasonable related context where useful.",
     "Prefer distractor mechanisms such as metric-vs-billing confusion, forgetting the multiply-by-1000 step, focusing on unit price instead of unified eCPM, confusing platform view with advertiser view, or mistaking high payout for high eCPM.",
     buildAdvertisingMetricsFewShotExample(request.type),
   ];
@@ -372,7 +372,7 @@ function buildKeypointExtractionMessages({ request }) {
         "recommended_angle should preferably come from: definition_distinction, formula_application, scenario_choice, platform_decision, relationship_judgment, boundary_elimination, comparative_reasoning, error_analysis.",
         `question_category should come from: ${formatQuestionCategoryList()}.`,
         "importance_score must be an integer from 1 to 100.",
-        "Keep evidence_quote concise and source-grounded; do not paste the entire paragraph.",
+        "Keep evidence_quote concise and useful as the knowledge-point anchor; it does not need to be the only answer source.",
         ...buildDomainSpecificPromptSections({ request, phase: "keypoint" }),
         "JSON Schema:",
         '{"keypoints":[{"title":"...","importance_score":90,"evidence_quote":"...","why_important":"...","knowledge_type":"definition","confusable_point":"...","recommended_angle":"definition_distinction","question_category":"basic_definition"}]}',

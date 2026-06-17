@@ -239,6 +239,7 @@ function buildIdempotencyKey(userId, payload) {
     userId,
     payload.requestNonce || 0,
     hashText(payload.material || ""),
+    payload.image?.fingerprint || "",
     payload.type || "",
     payload.difficulty || "",
     payload.mode || "",
@@ -448,4 +449,3 @@ module.exports = {
   deriveGoalTags,
   verifyApiKeyBasic,
 };
-

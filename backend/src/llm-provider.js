@@ -7,10 +7,14 @@ const DEFAULT_TOP_P = 0.95;
 const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
 const MIN_MAX_OUTPUT_TOKENS = 256;
 const MAX_MAX_OUTPUT_TOKENS = 4096;
+const DEFAULT_QWEN_VISION_MODEL = process.env.QWEN_VISION_MODEL || "qwen-vl-plus";
 
 const CHAT_COMPLETION_PROVIDERS = new Set(["qwen", "deepseek"]);
 const RESPONSES_PROVIDERS = new Set(["openai"]);
 const GENERATE_CONTENT_PROVIDERS = new Set(["gemini"]);
+const VISION_CHAT_COMPLETION_PROVIDERS = new Set(["qwen"]);
+const VISION_RESPONSES_PROVIDERS = new Set(["openai"]);
+const VISION_GENERATE_CONTENT_PROVIDERS = new Set(["gemini"]);
 const REMOTE_CAPABLE_PROVIDERS = new Set([
   ...CHAT_COMPLETION_PROVIDERS,
   ...RESPONSES_PROVIDERS,
@@ -232,6 +236,43 @@ function assertRemoteConfig(resolved) {
   }
 }
 
+function isQwenVisionModel(model) {
+  return /(?:vl|vision|omni)/i.test(String(model || ""));
+}
+
+function resolveVisionLlmConfig(config = {}) {
+  const resolved = resolveLlmConfig(config);
+  if (resolved.provider === "qwen" && !isQwenVisionModel(resolved.model)) {
+    return {
+      ...resolved,
+      model: DEFAULT_QWEN_VISION_MODEL,
+      textModel: resolved.model,
+      visionModelFallback: true,
+    };
+  }
+  return resolved;
+}
+
+function assertVisionConfig(resolved) {
+  assertRemoteConfig(resolved);
+
+  if (
+    !VISION_CHAT_COMPLETION_PROVIDERS.has(resolved.provider) &&
+    !VISION_RESPONSES_PROVIDERS.has(resolved.provider) &&
+    !VISION_GENERATE_CONTENT_PROVIDERS.has(resolved.provider)
+  ) {
+    const error = new Error(
+      `当前 ${resolved.provider} 配置不支持图片解析，请切换到 OpenAI、Gemini 或千问视觉模型`
+    );
+    error.code = ERROR_CODES.VALIDATION_FAILED;
+    throw error;
+  }
+
+  if (resolved.provider === "qwen" && !isQwenVisionModel(resolved.model)) {
+    resolved.model = DEFAULT_QWEN_VISION_MODEL;
+  }
+}
+
 async function createOpenAICompatibleChatCompletion({
   resolved,
   messages,
@@ -258,6 +299,50 @@ async function createOpenAICompatibleChatCompletion({
   return {
     config: resolved,
     transport: "chat_completions",
+    raw: completion,
+    text: extractChatCompletionText(completion),
+  };
+}
+
+async function createOpenAICompatibleVisionChatCompletion({
+  resolved,
+  prompt,
+  imageDataUrl,
+  temperature,
+  topP,
+  maxOutputTokens,
+}) {
+  const client = new OpenAI({
+    apiKey: resolved.apiKey,
+    baseURL: resolved.baseUrl,
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+  const completion = await client.chat.completions.create({
+    model: resolved.model,
+    messages: [
+      {
+        role: "system",
+        content: "You extract study material from images faithfully.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          {
+            type: "image_url",
+            image_url: { url: imageDataUrl },
+          },
+        ],
+      },
+    ],
+    temperature,
+    top_p: clampTopP(topP),
+    max_tokens: clampMaxOutputTokens(maxOutputTokens),
+  });
+
+  return {
+    config: resolved,
+    transport: "chat_completions_vision",
     raw: completion,
     text: extractChatCompletionText(completion),
   };
@@ -294,6 +379,52 @@ async function createOpenAIResponsesCompletion({
   };
 }
 
+async function createOpenAIResponsesVisionCompletion({
+  resolved,
+  prompt,
+  imageDataUrl,
+  temperature,
+  topP,
+  maxOutputTokens,
+}) {
+  const client = new OpenAI({
+    apiKey: resolved.apiKey,
+    baseURL: resolved.baseUrl,
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+  const response = await client.responses.create({
+    model: resolved.model,
+    input: [
+      {
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: "You extract study material from images faithfully.",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          { type: "input_image", image_url: imageDataUrl, detail: "high" },
+        ],
+      },
+    ],
+    temperature,
+    top_p: clampTopP(topP),
+    max_output_tokens: clampMaxOutputTokens(maxOutputTokens),
+  });
+
+  return {
+    config: resolved,
+    transport: "responses_vision",
+    raw: response,
+    text: extractResponseText(response),
+  };
+}
+
 function buildGeminiRequestBody(messages, temperature, topP, maxOutputTokens) {
   const normalized = normalizeMessages(messages);
   const systemText = normalized
@@ -320,6 +451,40 @@ function buildGeminiRequestBody(messages, temperature, topP, maxOutputTokens) {
       contents.length > 0
         ? contents
         : [{ role: "user", parts: [{ text: "" }] }],
+    generationConfig: {
+      temperature,
+      topP: clampTopP(topP),
+      maxOutputTokens: clampMaxOutputTokens(maxOutputTokens),
+    },
+  };
+}
+
+function buildGeminiVisionRequestBody(
+  prompt,
+  imageBase64,
+  mimeType,
+  temperature,
+  topP,
+  maxOutputTokens
+) {
+  return {
+    systemInstruction: {
+      parts: [{ text: "You extract study material from images faithfully." }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType,
+              data: imageBase64,
+            },
+          },
+        ],
+      },
+    ],
     generationConfig: {
       temperature,
       topP: clampTopP(topP),
@@ -374,6 +539,61 @@ async function createGeminiGenerateContent({
   }
 }
 
+async function createGeminiVisionGenerateContent({
+  resolved,
+  prompt,
+  imageBase64,
+  mimeType,
+  temperature,
+  topP,
+  maxOutputTokens,
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const endpoint = `${resolved.baseUrl.replace(/\/$/, "")}/models/${resolved.model}:generateContent`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": resolved.apiKey,
+      },
+      body: JSON.stringify(
+        buildGeminiVisionRequestBody(
+          prompt,
+          imageBase64,
+          mimeType,
+          temperature,
+          topP,
+          maxOutputTokens
+        )
+      ),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const error = new Error(
+        payload?.error?.message || `Gemini request failed with status ${response.status}`
+      );
+      error.status = response.status;
+      error.code = ERROR_CODES.VALIDATION_FAILED;
+      error.data = payload;
+      throw error;
+    }
+
+    return {
+      config: resolved,
+      transport: "generateContent_vision",
+      raw: payload,
+      text: extractGeminiText(payload),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function createProviderText({
   config,
   messages,
@@ -408,6 +628,58 @@ async function createProviderText({
     return createGeminiGenerateContent({
       resolved,
       messages,
+      temperature,
+      topP,
+      maxOutputTokens,
+    });
+  }
+
+  const error = new Error(`provider ${resolved.provider} is not supported`);
+  error.code = ERROR_CODES.VALIDATION_FAILED;
+  throw error;
+}
+
+async function createProviderVisionText({
+  config,
+  prompt,
+  imageDataUrl,
+  imageBase64,
+  mimeType,
+  temperature = DEFAULT_TEMPERATURE,
+  topP = DEFAULT_TOP_P,
+  maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
+}) {
+  const resolved = resolveVisionLlmConfig(config);
+  assertVisionConfig(resolved);
+
+  if (VISION_CHAT_COMPLETION_PROVIDERS.has(resolved.provider)) {
+    return createOpenAICompatibleVisionChatCompletion({
+      resolved,
+      prompt,
+      imageDataUrl,
+      temperature,
+      topP,
+      maxOutputTokens,
+    });
+  }
+
+  if (VISION_RESPONSES_PROVIDERS.has(resolved.provider)) {
+    return createOpenAIResponsesVisionCompletion({
+      resolved,
+      prompt,
+      imageDataUrl,
+      temperature,
+      topP,
+      maxOutputTokens,
+    });
+  }
+
+  if (VISION_GENERATE_CONTENT_PROVIDERS.has(resolved.provider)) {
+    return createGeminiVisionGenerateContent({
+      resolved,
+      prompt,
+      imageBase64,
+      mimeType,
       temperature,
       topP,
       maxOutputTokens,
@@ -479,6 +751,7 @@ module.exports = {
   DEFAULT_TEMPERATURE,
   DEFAULT_TOP_P,
   REQUEST_TIMEOUT_MS,
+  createProviderVisionText,
   createProviderText,
   createChatCompletion: createProviderText,
   formatProviderError,

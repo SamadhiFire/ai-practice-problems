@@ -19,6 +19,10 @@ const { createRouter } = require("./router");
 const { MemoryStore } = require("./store");
 const { verifyProviderConfig } = require("./llm-provider");
 const {
+  extractMaterialFromGenerationImage,
+  normalizeGenerationImageDataUrl,
+} = require("./material-extraction");
+const {
   buildIdempotencyKey,
   clone,
   compareChoices,
@@ -51,11 +55,17 @@ function validateGeneratePayload(payload) {
       "generate payload is required"
     );
   }
-  if (!String(payload.material || "").trim()) {
+  const rawImageDataUrl = String(
+    payload.imageDataUrl ||
+      payload.image?.dataUrl ||
+      payload.image?.url ||
+      ""
+  ).trim();
+  if (!String(payload.material || "").trim() && !rawImageDataUrl) {
     throw new HttpError(
       400,
       ERROR_CODES.BAD_REQUEST,
-      "material is required"
+      "material or image is required"
     );
   }
   if (!["single", "multi"].includes(payload.type)) {
@@ -129,10 +139,41 @@ function validateGeneratePayload(payload) {
 
 function normalizeGenerateRequestPayload(payload) {
   validateGeneratePayload(payload);
+  const rawImageDataUrl = String(
+    payload.imageDataUrl ||
+      payload.image?.dataUrl ||
+      payload.image?.url ||
+      ""
+  ).trim();
+  const image = rawImageDataUrl
+    ? normalizeGenerationImageDataUrl(rawImageDataUrl)
+    : null;
+  const material = String(payload.material || "").trim();
+  const normalizedMode = image || (material && material.length <= 50)
+    ? "modeA"
+    : payload.mode;
   return {
-    ...payload,
+    material,
+    type: payload.type,
+    difficulty: payload.difficulty,
+    mode: normalizedMode,
     feedbackMode: normalizeFeedbackMode(payload.feedbackMode),
+    targetCount: payload.targetCount,
+    initialBatchCount: payload.initialBatchCount,
+    requestNonce: payload.requestNonce,
     userTags: normalizeTags(payload.userTags || []),
+    ...(image
+      ? {
+          image: {
+            dataUrl: image.dataUrl,
+            imageBase64: image.imageBase64,
+            mimeType: image.mimeType,
+            byteLength: image.byteLength,
+            fingerprint: image.fingerprint,
+          },
+          imageName: String(payload.imageName || "").trim().slice(0, 120),
+        }
+      : {}),
   };
 }
 
@@ -653,10 +694,51 @@ function createApp(store = new MemoryStore()) {
         sessionId: session.id,
       });
 
+      let generationPayload = payload;
+      if (payload.image) {
+        try {
+          const extractedMaterial = await extractMaterialFromGenerationImage({
+            request: payload,
+            llmConfig: await store.getLlmConfig(ctx.user.userId),
+          });
+          generationPayload = {
+            ...payload,
+            material: extractedMaterial,
+          };
+          job.material = extractedMaterial;
+          job.updatedAt = now();
+          await store.saveGenerationJob(ctx.user.userId, job);
+        } catch (error) {
+          const failedJob = {
+            ...job,
+            status: "canceled",
+            updatedAt: now(),
+          };
+          await store.saveGenerationJob(ctx.user.userId, failedJob);
+          throw new HttpError(
+            error.code === ERROR_CODES.VALIDATION_FAILED ? 400 : 500,
+            error.code || ERROR_CODES.LLM_FAILED,
+            error.message || "image material extraction failed"
+          );
+        }
+
+        const currentJobAfterExtraction = await store.getGenerationJob(
+          ctx.user.userId,
+          job.jobId
+        );
+        if (currentJobAfterExtraction && currentJobAfterExtraction.status === "canceled") {
+          throw new HttpError(
+            409,
+            ERROR_CODES.CONFLICT,
+            "question generation was canceled"
+          );
+        }
+      }
+
       let result;
       try {
         result = await buildGenerationResult({
-          request: payload,
+          request: generationPayload,
           session,
           job,
           llmConfig: await store.getLlmConfig(ctx.user.userId),
@@ -669,7 +751,7 @@ function createApp(store = new MemoryStore()) {
         };
         await store.saveGenerationJob(ctx.user.userId, failedJob);
         throw new HttpError(
-          500,
+          error.code === ERROR_CODES.VALIDATION_FAILED ? 400 : 500,
           error.code || ERROR_CODES.LLM_FAILED,
           error.message || "question generation failed"
         );

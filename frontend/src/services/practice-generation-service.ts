@@ -28,6 +28,9 @@ export interface StartPracticeGenerationInput {
   userTags: string[]
   requestNonce: number
   timeoutMs: number
+  imageDataUrl?: string
+  imageName?: string
+  imageMimeType?: string
 }
 
 export interface StartPracticeGenerationSuccess {
@@ -119,6 +122,13 @@ export async function startPracticeGeneration(
       initialBatchCount: input.initialBatchCount,
       userTags: input.userTags,
       requestNonce: input.requestNonce,
+      ...(input.imageDataUrl
+        ? {
+            imageDataUrl: input.imageDataUrl,
+            imageName: input.imageName || '',
+            imageMimeType: input.imageMimeType || '',
+          }
+        : {}),
     }
     const backendResult = await withTimeout(
       createQuestionsGenerationJobInBackend(backendPayload),
@@ -200,6 +210,13 @@ export function cancelPracticeGeneration(input: StartPracticeGenerationInput): v
     initialBatchCount: input.initialBatchCount,
     userTags: input.userTags,
     requestNonce: input.requestNonce,
+    ...(input.imageDataUrl
+      ? {
+          imageDataUrl: input.imageDataUrl,
+          imageName: input.imageName || '',
+          imageMimeType: input.imageMimeType || '',
+        }
+      : {}),
   }
   void cancelQuestionsGenerationRequestInBackend(backendPayload).catch(() => {
     // ignore backend cancel failure

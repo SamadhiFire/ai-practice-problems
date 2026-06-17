@@ -5,6 +5,13 @@ const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_TAGS = 7;
 const MAX_TAG_LENGTH = 12;
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const MAX_GENERATION_IMAGE_BYTES = 8 * 1024 * 1024;
+const GENERATION_IMAGE_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
 
 const ERROR_CODES = {
   BAD_REQUEST: 40001,
@@ -92,6 +99,8 @@ module.exports = {
   MAX_TAGS,
   MAX_TAG_LENGTH,
   MAX_AVATAR_BYTES,
+  MAX_GENERATION_IMAGE_BYTES,
+  GENERATION_IMAGE_MIME_TYPES,
   ERROR_CODES,
   PROVIDERS,
   PROVIDER_DEFAULTS,

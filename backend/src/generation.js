@@ -163,7 +163,7 @@ function buildKeypointImportance(locale, mode, difficulty) {
   }
   return difficulty === "hard"
     ? "This point is suitable for testing evidence boundaries, condition limits, or cross-sentence integration."
-    : "This point can directly support a source-grounded, discriminative question.";
+    : "This point can support a focused, discriminative question.";
 }
 
 function buildFallbackKnowledgeType(index) {
