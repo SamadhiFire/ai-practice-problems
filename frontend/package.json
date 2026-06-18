@@ -22,7 +22,7 @@
     "@dcloudio/types": "3.4.19",
     "@dcloudio/vite-plugin-uni": "3.0.0-4080720251210001",
     "typescript": "^5.2.2",
-    "vite": "5.2.8",
+    "vite": "6.4.2",
     "vue-tsc": "^2.0.29"
   }
 }
