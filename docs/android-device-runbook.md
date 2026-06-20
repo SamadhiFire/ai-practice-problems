@@ -10,18 +10,21 @@
 - Android NDK r27d、Clang 18、Ninja 均可用。
 - `libMNN.so` 已按 `arm64-v8a` 编译，并确认包含 SME2/KleidiAI 内核符号。
 - `libmnn_qwen_jni.so` 已完成交叉编译、链接和 SME2 运行时检测修正。
-- 模型、MNN、JNI 和 `libc++_shared.so` 已放入本地原生插件。
+- 模型、MNN、JNI 和 `libc++_shared.so` 已放入 AAR 构建源。
 - uni-app 的 APP 资源编译已通过，输出目录为 `frontend/dist/build/app`。
 - `MnnQwenPlugin.aar` 已离线生成，且仅打包业务 class，没有把编译桩打入产物。
+- HBuilderX 的 `nativeplugins` 发布目录只保留最终 AAR，避免模型和原生库重复上传。
 - 前端类型检查通过，前端调用名与原生模块导出方法一致。
 
 当前 AAR：
 
 ```text
 frontend/nativeplugins/MnnQwenPlugin/android/libs/MnnQwenPlugin.aar
-大小：237,690,185 bytes（约 226.68 MB）
-SHA256：881598C477C2552CDCEAD28EDAB101FAB579F6CBA561A5781F5140F87AE46064
+大小：237,690,176 bytes（约 226.68 MB）
+SHA256：C13000E803605347A0B02A52228018963579074F349AC0FB14FB4560BC33DE02
 ```
+
+完整 Android 插件构建源位于 `deps/mnn-qwen-android-plugin`；不要把该目录复制回 `frontend/nativeplugins`。
 
 ## 可重复构建
 

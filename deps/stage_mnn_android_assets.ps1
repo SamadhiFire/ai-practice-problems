@@ -14,7 +14,7 @@ $SourceModelDir = if ([string]::IsNullOrWhiteSpace($ModelDir)) {
 } else {
     $ModelDir
 }
-$TargetModelDir = Join-Path $RepoRoot "frontend/nativeplugins/MnnQwenPlugin/android/src/main/assets/models/qwen-mnn"
+$TargetModelDir = Join-Path $ScriptDir "mnn-qwen-android-plugin/src/main/assets/models/qwen-mnn"
 
 $RequiredFiles = @(
     "config.json",

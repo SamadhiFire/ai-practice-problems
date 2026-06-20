@@ -56,6 +56,6 @@ dependencies {
 tasks.register('stageReleaseAar', Copy) {
     dependsOn 'assembleRelease'
     from layout.buildDirectory.file("outputs/aar/${project.name}-release.aar")
-    into layout.projectDirectory.dir('libs')
+    into layout.projectDirectory.dir('../../frontend/nativeplugins/MnnQwenPlugin/android/libs')
     rename { 'MnnQwenPlugin.aar' }
 }

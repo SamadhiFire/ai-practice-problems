@@ -5,9 +5,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$androidRoot = Join-Path $repoRoot "frontend\nativeplugins\MnnQwenPlugin\android"
+$androidRoot = Join-Path $PSScriptRoot "mnn-qwen-android-plugin"
+$distributionAndroidRoot = Join-Path $repoRoot "frontend\nativeplugins\MnnQwenPlugin\android"
 $buildRoot = Join-Path $PSScriptRoot "mnn-qwen-aar-build"
-$outputDir = Join-Path $androidRoot "libs"
+$outputDir = Join-Path $distributionAndroidRoot "libs"
 $outputAar = Join-Path $outputDir "MnnQwenPlugin.aar"
 
 $javac = Join-Path $HBuilderXRoot "plugins\amazon-corretto\bin\javac.exe"

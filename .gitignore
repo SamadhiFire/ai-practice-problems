@@ -23,7 +23,7 @@ models/qwen-mnn/tokenizer.mtok
 models/qwen-mnn/embeddings_bf16.bin
 
 # Android 原生插件编译产物
-frontend/nativeplugins/MnnQwenPlugin/android/src/main/jniLibs/arm64-v8a/*.so
 frontend/nativeplugins/MnnQwenPlugin/android/libs/*.aar
-frontend/nativeplugins/MnnQwenPlugin/android/src/main/assets/models/qwen-mnn/*
-!frontend/nativeplugins/MnnQwenPlugin/android/src/main/assets/models/qwen-mnn/.gitkeep
+deps/mnn-qwen-android-plugin/src/main/jniLibs/arm64-v8a/*.so
+deps/mnn-qwen-android-plugin/src/main/assets/models/qwen-mnn/*
+!deps/mnn-qwen-android-plugin/src/main/assets/models/qwen-mnn/.gitkeep

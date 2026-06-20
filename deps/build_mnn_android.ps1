@@ -16,7 +16,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DepsDir = $ScriptDir
 $MnnDir = Join-Path $DepsDir "MNN"
 $MnnSdkDir = Join-Path $DepsDir "mnn-android-sdk"
-$PluginJniLibs = Join-Path (Split-Path -Parent $DepsDir) "frontend/nativeplugins/MnnQwenPlugin/android/src/main/jniLibs/$Abi"
+$PluginJniLibs = Join-Path $DepsDir "mnn-qwen-android-plugin/src/main/jniLibs/$Abi"
 
 function Resolve-NinjaExecutable {
     param([string]$RequestedPath)
